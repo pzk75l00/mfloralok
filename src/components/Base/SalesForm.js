@@ -80,119 +80,117 @@ const SalesForm = ({ plants, onCompleteSale }) => {
   };
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow-md">
+    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md">
       <h2 className="text-xl font-semibold mb-4">Registrar Venta</h2>
-      <form onSubmit={handleSubmit}>
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Planta</label>
-              {/* Reemplazo: input+select sincronizados */}
-              <PlantAutocomplete
-                plants={plants}
-                value={saleData.plantId}
-                onChange={val => setSaleData(prev => ({ ...prev, plantId: val }))}
-                required
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Cantidad</label>
-              <input
-                type="number"
-                name="quantity"
-                min="1"
-                max={selectedPlant?.stock || ''}
-                value={saleData.quantity}
-                onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Precio Unitario</label>
-              <input
-                type="number"
-                name="salePrice"
-                value={saleData.salePrice}
-                onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-                required
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Método de Pago</label>
-              <select
-                name="paymentMethod"
-                value={saleData.paymentMethod}
-                onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-              >
-                <option value="efectivo">Efectivo (E)</option>
-                <option value="mercadoPago">Mercado Pago (MP)</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Lugar</label>
-              <input
-                type="text"
-                name="location"
-                value={saleData.location}
-                onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-              />
-            </div>
-          </div>
-
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700">Observaciones</label>
-            <textarea
-              name="notes"
-              value={saleData.notes}
-              onChange={handleChange}
-              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-              rows="2"
+            <label className="block text-sm font-medium text-gray-700">Planta</label>
+            {/* Reemplazo: input+select sincronizados */}
+            <PlantAutocomplete
+              plants={plants}
+              value={saleData.plantId}
+              onChange={val => setSaleData(prev => ({ ...prev, plantId: val }))}
+              required
             />
           </div>
+        </div>
 
-          <div className="pt-2">
-            <p className="text-lg font-medium">
-              Total: ${(saleData.quantity * saleData.salePrice).toFixed(2) || '0.00'}
-            </p>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Cantidad</label>
+            <input
+              type="number"
+              name="quantity"
+              min="1"
+              max={selectedPlant?.stock || ''}
+              value={saleData.quantity}
+              onChange={handleChange}
+              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+              required
+            />
           </div>
-
-          {errorMsg && (
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mb-2 text-center">{errorMsg}</div>
-          )}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Producto</label>
-              {/* Reemplazo: input+select sincronizados */}
-              <PlantAutocomplete
-                plants={plants}
-                value={saleData.plantId}
-                onChange={val => setSaleData(prev => ({ ...prev, plantId: val }))}
-                required
-              />
-            </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Precio Unitario</label>
+            <input
+              type="number"
+              name="salePrice"
+              value={saleData.salePrice}
+              onChange={handleChange}
+              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+              required
+            />
           </div>
         </div>
-        <div className="mt-6">
-          <button
-            type="submit"
-            className="w-full px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700"
-            disabled={!saleData.plantId}
-          >
-            Registrar Venta
-          </button>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Método de Pago</label>
+            <select
+              name="paymentMethod"
+              value={saleData.paymentMethod}
+              onChange={handleChange}
+              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+            >
+              <option value="efectivo">Efectivo (E)</option>
+              <option value="mercadoPago">Mercado Pago (MP)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Lugar</label>
+            <input
+              type="text"
+              name="location"
+              value={saleData.location}
+              onChange={handleChange}
+              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+            />
+          </div>
         </div>
-      </form>
-    </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Observaciones</label>
+          <textarea
+            name="notes"
+            value={saleData.notes}
+            onChange={handleChange}
+            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+            rows="2"
+          />
+        </div>
+
+        <div className="pt-2">
+          <p className="text-lg font-medium">
+            Total: ${(saleData.quantity * saleData.salePrice).toFixed(2) || '0.00'}
+          </p>
+        </div>
+
+        {errorMsg && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mb-2 text-center">{errorMsg}</div>
+        )}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Producto</label>
+            {/* Reemplazo: input+select sincronizados */}
+            <PlantAutocomplete
+              plants={plants}
+              value={saleData.plantId}
+              onChange={val => setSaleData(prev => ({ ...prev, plantId: val }))}
+              required
+            />
+          </div>
+        </div>
+      </div>
+      <div className="mt-6">
+        <button
+          type="submit"
+          className="w-full px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700"
+          disabled={!saleData.plantId}
+        >
+          Registrar Venta
+        </button>
+      </div>
+    </form>
   );
 };
 

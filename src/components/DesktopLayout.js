@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import Navigation from './Navigation';
 import logo from '../assets/images/logo.png';
 import PropTypes from 'prop-types';
+import { UserContext } from '../App';
 
 const socialLinks = [
   {
@@ -33,44 +34,64 @@ const DesktopLayout = ({ currentView, setCurrentView, children }) => {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       {/* Header */}
-      <header className="w-full bg-white shadow flex items-center justify-between px-6 py-3 sticky top-0 z-30">
+      <header className="w-full bg-white shadow flex items-center justify-between px-6 py-3 sticky top-0 z-30 relative">
         <div className="flex items-center gap-3">
-          <img src={logo} alt="Logo" className="h-10 w-10 rounded-full shadow" />
-          <span className="text-2xl font-bold text-green-700 tracking-tight">Mundo Floral</span>
+          <img src={logo} alt="Logo" className="h-10 w-10 rounded-full shadow border-2 border-gray-200 bg-white" />
+          <span className="text-2xl font-bold text-gray-800 tracking-tight drop-shadow">Mundo Floral</span>
         </div>
+        {/* Título de sección para Caja, centrado absoluto solo en escritorio */}
+        {currentView === 'caja' && (
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none select-none z-20">
+            <span className="text-base font-semibold text-black bg-[#e6f0fa] px-4 py-1 rounded-lg shadow border border-blue-300" style={{letterSpacing:1, fontWeight:400, boxShadow:'0 2px 12px 0 rgba(0,0,0,0.10)'}}>Caja y Movimientos</span>
+          </div>
+        )}
         <div className="flex items-center gap-3">
           {socialLinks.map(link => (
-            <a key={link.name} href={link.url} target="_blank" rel="noopener noreferrer" title={link.name} className="text-gray-500 hover:text-green-600 transition">
+            <a key={link.name} href={link.url} target="_blank" rel="noopener noreferrer" title={link.name} className="text-gray-400 hover:text-blue-500 transition">
               {link.icon}
             </a>
           ))}
           {/* Botón para agregar más redes */}
-          <button className="ml-2 text-gray-400 hover:text-green-600" title="Agregar red social">
+          <button className="ml-2 text-gray-400 hover:text-blue-500" title="Agregar red social">
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           </button>
         </div>
       </header>
       <div className="flex flex-1 min-h-0">
         {/* Sidebar */}
-        <aside className={`transition-all duration-300 bg-white shadow-lg flex flex-col ${sidebarOpen ? 'w-56' : 'w-16'} h-screen sticky top-0 min-h-0 z-20`}>
-          <button
-            className="p-2 m-2 rounded hover:bg-green-100 text-green-700 self-end"
-            onClick={() => setSidebarOpen(o => !o)}
-            title={sidebarOpen ? 'Ocultar menú' : 'Mostrar menú'}
-          >
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={sidebarOpen ? 'M6 18L18 12L6 6' : 'M6 6l12 6-12 6'} />
-            </svg>
-          </button>
-          <Navigation currentView={currentView} setCurrentView={setCurrentView} sidebarMode={!sidebarOpen ? 'compact' : 'full'} />
-        </aside>
+        <UserContext.Consumer>
+          {({ userData }) => (
+            <aside className={`transition-all duration-300 bg-white shadow-lg flex flex-col ${sidebarOpen ? 'w-56' : 'w-16'} h-screen sticky top-0 min-h-0 z-20`}>
+              <button
+                className="p-2 m-2 rounded hover:bg-gray-100 text-gray-400 self-end"
+                onClick={() => setSidebarOpen(o => !o)}
+                title={sidebarOpen ? 'Ocultar menú' : 'Mostrar menú'}
+              >
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={sidebarOpen ? 'M6 18L18 12L6 6' : 'M6 6l12 6-12 6'} />
+                </svg>
+              </button>
+              <Navigation currentView={currentView} setCurrentView={setCurrentView} sidebarMode={!sidebarOpen ? 'compact' : 'full'} userData={userData} />
+            </aside>
+          )}
+        </UserContext.Consumer>
         {/* Main content */}
-        <main className="flex-1 p-6 overflow-y-auto min-h-0">
-          {children}
+        <main
+          className={
+            `flex-1 overflow-y-auto min-h-0 ${currentView === 'caja' ? 'pt-0 pr-6 pb-6 pl-6' : 'p-6'}`
+          }
+          style={currentView === 'caja' ? {paddingTop: 0} : {}}
+        >
+          {currentView === 'caja' ? (
+            // Renderiza los children directamente, sin el contenedor blanco
+            children
+          ) : (
+            children
+          )}
         </main>
       </div>
       {/* Footer */}
-      <footer className="w-full bg-white text-center text-xs text-gray-400 py-2 border-t mt-2">
+      <footer className="w-full bg-gray-800 text-center text-xs text-gray-100 py-2 border-t mt-2">
         © {new Date().getFullYear()} Mundo Floral. Todos los derechos reservados.
       </footer>
     </div>

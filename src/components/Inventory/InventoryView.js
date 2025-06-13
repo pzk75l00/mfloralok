@@ -4,6 +4,7 @@ import { db } from '../../firebase/firebaseConfig';
 import InventoryMovilView from '../Movil/InventoryMovilView';
 import PlantCard from './PlantCard';
 import LoadPlantsToFirestore from '../Base/LoadPlantsToFirestore';
+import ProductTypesManager from './ProductTypesManager';
 
 const initialForm = { name: '', type: '', stock: 0, basePrice: 0, purchasePrice: 0, purchaseDate: '', supplier: '' };
 
@@ -23,6 +24,10 @@ const InventoryView = () => {
   const [deleteModal, setDeleteModal] = useState({ open: false, id: null, name: '' });
   const [imagePreview, setImagePreview] = useState(null);
   const [imageFile, setImageFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [reloadFlag, setReloadFlag] = useState(0);
+  const [showTypesManager, setShowTypesManager] = useState(false);
+  const [productTypes, setProductTypes] = useState([]);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -31,11 +36,20 @@ const InventoryView = () => {
   }, []);
 
   useEffect(() => {
+    setLoading(true);
     const unsubscribe = onSnapshot(collection(db, 'plants'), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setPlants(data);
+      setLoading(false);
     });
     return () => unsubscribe();
+  }, [reloadFlag]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'productTypes'), snap => {
+      setProductTypes(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsub();
   }, []);
 
   // Filtro de plantas según búsqueda
@@ -160,11 +174,30 @@ const InventoryView = () => {
     setDeleteModal({ open: false, id: null, name: '' });
   };
 
+  // Botón para recargar desde Firebase
+  const handleReload = () => {
+    setLoading(true);
+    setReloadFlag(flag => flag + 1);
+  };
+
   // Render condicional después de los hooks
   if (isMobile) return <InventoryMovilView />;
 
   return (
-    <div ref={mainContainerRef} className="relative space-y-8">
+    <div className="w-full max-w-7xl mx-auto p-4">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-2xl font-bold">Inventario de Plantas</h2>
+        {/* Botón "Cargar desde Firebase" oculto por requerimiento */}
+        {/*
+        <button
+          onClick={handleReload}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow"
+          disabled={loading}
+        >
+          {loading ? 'Cargando...' : 'Cargar desde Firebase'}
+        </button>
+        */}
+      </div>
       {/* Línea superior: barra flotante con selector de vista, búsqueda, exportar/importar y botón actualizar firestore */}
       <div className="sticky top-2 z-20 bg-white/90 backdrop-blur rounded-xl shadow-md border border-gray-100 px-4 py-2 flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-4">
         {/* Selector de vista (izquierda) */}
@@ -281,14 +314,20 @@ const InventoryView = () => {
       </div>
       {/* Bloque 1: Carga/edición de plantas */}
       <section className="bg-white rounded-xl shadow p-6 border border-gray-100">
-        <h2 ref={titleRef} className="text-2xl font-bold mb-2 text-green-700">Carga - Actualización de productos</h2>
+        <h2 ref={titleRef} className="text-2xl font-bold mb-2 text-green-700 flex items-center gap-2">
+          Carga - Actualización de productos
+          <button type="button" className="ml-2 px-2 py-1 text-xs bg-green-100 hover:bg-green-200 rounded border border-green-300 text-green-700" onClick={() => setShowTypesManager(true)}>
+            Gestionar tipos
+          </button>
+        </h2>
+        {showTypesManager && <ProductTypesManager onClose={() => setShowTypesManager(false)} />}
         {editingId && (
           <div className="mb-2 px-2 py-1 rounded bg-green-50 border border-green-200 text-green-800 text-xs font-semibold flex items-center gap-2">
             <span className="material-icons text-base align-middle">edit</span>
             Editando: <b className="ml-1">{form.name}</b>
           </div>
         )}
-        <form id="form-alta-producto" ref={formRef} onSubmit={handleSubmit} className="mb-2 w-full transition-shadow">
+        <form ref={formRef} onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md">
           <div className="w-full grid grid-cols-1 md:grid-cols-8 gap-2 items-end">
             <div>
               <label className="block text-xs font-medium">Nombre</label>
@@ -298,10 +337,9 @@ const InventoryView = () => {
               <label className="block text-xs font-medium">Tipo</label>
               <select name="type" value={form.type} onChange={handleChange} className="border rounded p-1 w-full text-xs" required>
                 <option value="">Seleccionar...</option>
-                <option value="Plantas de Interior">Plantas de Interior</option>
-                <option value="Plantas de Exterior">Plantas de Exterior</option>
-                <option value="Macetas">Macetas</option>
-                <option value="Otros">Otros</option>
+                {productTypes.map(t => (
+                  <option key={t.id} value={t.name}>{t.name}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -329,10 +367,12 @@ const InventoryView = () => {
               <div className="relative">
                 <button
                   type="button"
-                  className="px-2 py-1 rounded text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-200 cursor-pointer w-full text-left"
+                  className="px-2 py-1 rounded text-xs bg-green-600 hover:bg-green-700 text-white border border-green-700 cursor-pointer md:w-auto md:text-xs md:px-2 md:py-1 shadow flex items-center gap-2"
+                  style={{ maxWidth: '160px', width: '100%' }}
                   onClick={() => document.getElementById('input-img-producto').click()}
                 >
-                  Seleccionar imagen
+                  <span role="img" aria-label="imagen" className="text-base">🖼️</span>
+                  Buscar imagen
                 </button>
                 <input
                   id="input-img-producto"

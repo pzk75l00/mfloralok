@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, setDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebase/firebaseConfig';
+import ProductTypesManager from './ProductTypesManager';
 
 const initialForm = { name: '', type: '', stock: 0, basePrice: 0, purchasePrice: 0, purchaseDate: '', supplier: '' };
 
@@ -11,6 +12,8 @@ const InventoryMovilView = () => {
   const [showForm, setShowForm] = useState(false);
   const [viewMode, setViewMode] = useState('cards'); // 'cards' o 'table'
   const [search, setSearch] = useState("");
+  const [showTypesManager, setShowTypesManager] = useState(false);
+  const [productTypes, setProductTypes] = useState([]);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, 'plants'), (snapshot) => {
@@ -18,6 +21,13 @@ const InventoryMovilView = () => {
       setPlants(data);
     });
     return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'productTypes'), snap => {
+      setProductTypes(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsub();
   }, []);
 
   const handleChange = e => {
@@ -107,7 +117,12 @@ const InventoryMovilView = () => {
             className={`px-3 py-1 rounded font-semibold text-sm ${viewMode === 'table' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'}`}
             onClick={() => setViewMode('table')}
           >Vista de tabla</button>
+          <button
+            className="px-3 py-1 rounded font-semibold text-xs bg-green-100 hover:bg-green-200 text-green-700 border border-green-300"
+            onClick={() => setShowTypesManager(true)}
+          >Gestionar tipos</button>
         </div>
+        {showTypesManager && <ProductTypesManager onClose={() => setShowTypesManager(false)} />}
         <button
           type="button"
           className="fixed bottom-20 right-4 z-50 bg-green-600 text-white rounded-full shadow-lg p-4 text-3xl md:hidden hover:bg-green-700 transition"
@@ -119,16 +134,15 @@ const InventoryMovilView = () => {
         </button>
         {showForm && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-30">
-            <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow p-4 mb-4 grid grid-cols-1 gap-3 w-full max-w-md relative" style={{paddingBottom: 120, marginBottom: 0, maxHeight: '90vh', overflowY: 'auto'}}>
+            <form onSubmit={handleSubmit} className="bg-white p-4 rounded-lg shadow-md">
               <label className="text-sm font-medium text-gray-700">Nombre</label>
               <input name="name" value={form.name} onChange={handleChange} className="border rounded p-2 w-full" placeholder="Nombre" required />
               <label className="text-sm font-medium text-gray-700">Tipo</label>
               <select name="type" value={form.type} onChange={handleChange} className="border rounded p-2 w-full" required>
                 <option value="">Tipo...</option>
-                <option value="Plantas de Interior">Plantas de Interior</option>
-                <option value="Plantas de Exterior">Plantas de Exterior</option>
-                <option value="Macetas">Macetas</option>
-                <option value="Otros">Otros</option>
+                {productTypes.map(t => (
+                  <option key={t.id} value={t.name}>{t.name}</option>
+                ))}
               </select>
               <label className="text-sm font-medium text-gray-700">Stock</label>
               <input name="stock" type="number" min="0" value={form.stock} onChange={handleChange} className="border rounded p-2 w-full" placeholder="Stock" required />

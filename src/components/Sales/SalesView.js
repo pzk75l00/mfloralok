@@ -14,7 +14,7 @@ const SalesView = (props) => {
 
   // Vista de escritorio: puedes personalizar MovementsView para ventas
   return (
-    <div className="relative">
+    <div className="relative max-w-full">
       <h2 className="text-xl font-bold mb-4">Ventas</h2>
       <div className="bg-white rounded-lg shadow p-4">
         <MovementsView {...props} showOnlySalesOfDay={false} />

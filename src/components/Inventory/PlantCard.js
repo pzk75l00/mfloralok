@@ -26,13 +26,15 @@ const PlantCard = ({ plant, onEdit, onDelete }) => {
   // Simulación de update (reemplaza por lógica real si usas backend)
   const updateField = async (field, value) => {
     setLoading(true);
+    // Llama a onEdit con el nuevo valor actualizado
+    await onEdit({ ...plant, [field]: value });
     setTimeout(() => {
       setLoading(false);
     }, 500);
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow">
+    <div className="bg-[#f7f7fa] rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow border border-gray-300">
       <div className="flex flex-col items-center p-4">
         <img
           src={imgSrc}

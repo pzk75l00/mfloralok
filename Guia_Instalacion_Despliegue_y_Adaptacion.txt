@@ -1,0 +1,75 @@
+Guía de Instalación, Despliegue y Adaptación del Sistema de Gestión (Plantas, Panadería, etc.)
+
+1. Requisitos Previos
+---------------------
+- Node.js y npm instalados (https://nodejs.org/)
+- Cuenta de Firebase (https://firebase.google.com/)
+- Acceso a los archivos fuente del sistema
+
+2. Configuración Inicial
+------------------------
+A. Clonar o copiar la carpeta del sistema a la PC destino.
+B. Crear un proyecto en Firebase y obtener las credenciales:
+   - API KEY, AUTH DOMAIN, DATABASE URL, PROJECT ID, STORAGE BUCKET, etc.
+C. Editar el archivo `.env` con los datos de tu proyecto Firebase.
+
+3. Instalación de Dependencias
+-----------------------------
+Desde la carpeta raíz del proyecto, ejecutar en terminal:
+
+    npm install
+
+4. Build de Producción
+----------------------
+Para generar la versión lista para usar:
+
+    npm run build
+
+Esto crea la carpeta `build/` con los archivos finales.
+
+5. Configuración de Imágenes
+----------------------------
+- Coloca las imágenes de productos en `public/img/plants/` (o `public/img/pan/` para panadería).
+- El logo debe ir en `public/imgLogo/`.
+- Para otros rubros, crea la carpeta correspondiente (ej: `img/pan/`).
+
+6. Configuración de Firebase Storage (Opcional)
+-----------------------------------------------
+- Si usas imágenes en la nube, sube las imágenes a Firebase Storage y ajusta las rutas en la app si es necesario.
+
+7. Despliegue en Otro Equipo
+----------------------------
+A. Copia la carpeta del sistema y la carpeta `build/` al nuevo equipo.
+B. Instala Node.js y npm si no están presentes.
+C. Repite los pasos de configuración del `.env` y las imágenes.
+D. Puedes servir la app localmente con:
+
+    npx serve -s build
+
+O subir la carpeta `build/` a un hosting web.
+
+8. Adaptación a Otros Rubros (Ejemplo: Panadería)
+-------------------------------------------------
+- Cambia los textos de "Planta" por "Producto" o "Pan" en los archivos de componentes (`src/components/`), usando buscar y reemplazar.
+- Ajusta los formularios para los campos relevantes (ej: tipo de pan, peso, etc.).
+- Cambia las imágenes y categorías según el rubro.
+- Si necesitas nuevos campos, agrégalos en los formularios y en la lógica de guardado.
+
+9. Subida de Imágenes y Logo
+----------------------------
+- Para agregar productos, coloca la imagen en la carpeta correspondiente y usa el formulario de carga.
+- El logo se reemplaza en `public/imgLogo/`.
+
+10. Notas sobre Costos y Firebase
+---------------------------------
+- El plan gratuito de Firebase suele ser suficiente para pequeños negocios.
+- Si el uso crece, revisa los límites y considera un plan pago.
+
+11. Soporte y Personalización
+----------------------------
+- Puedes personalizar la lógica y los textos editando los archivos en `src/components/`.
+- Para dudas técnicas, consulta la documentación incluida o contacta al desarrollador.
+
+---
+
+Este sistema es flexible y puede adaptarse a distintos rubros (plantas, panadería, almacén, etc.) siguiendo estos pasos. Ante cualquier duda, revisa la guía o pide soporte.

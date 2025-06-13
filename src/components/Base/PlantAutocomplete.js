@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 
 // Componente reutilizable de input+select sincronizados para plantas
-const PlantAutocomplete = ({ plants = [], value, onChange, label = 'Producto', required = false, disabled = false }) => {
+const PlantAutocomplete = ({ plants = [], value, onChange, label = 'Producto', required = false, disabled = false, classNameInput = '', classNameSelect = '' }) => {
   const [inputValue, setInputValue] = useState('');
   const [filtered, setFiltered] = useState(plants);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -63,6 +63,15 @@ const PlantAutocomplete = ({ plants = [], value, onChange, label = 'Producto', r
     setTimeout(() => setShowSuggestions(false), 100);
   };
 
+  // Detectar móvil
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   return (
     <div ref={wrapperRef} className="relative">
       <label className="block text-sm font-medium text-gray-700">{label}</label>
@@ -72,7 +81,7 @@ const PlantAutocomplete = ({ plants = [], value, onChange, label = 'Producto', r
         onChange={handleInput}
         onFocus={() => setShowSuggestions(true)}
         onBlur={handleBlur}
-        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+        className={`mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 ${isMobile ? 'bg-[#f5f6fa] text-gray-800' : ''} ${classNameInput}`}
         placeholder="Buscar producto..."
         disabled={disabled}
         autoComplete="off"
@@ -95,7 +104,7 @@ const PlantAutocomplete = ({ plants = [], value, onChange, label = 'Producto', r
       {/* Select tradicional sincronizado */}
       <select
         ref={selectRef}
-        className="mt-2 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+        className={`mt-2 block w-full border border-gray-300 rounded-md shadow-sm p-2 ${isMobile ? 'bg-[#f5f6fa] text-gray-800' : ''} ${classNameSelect}`}
         value={value || ''}
         onChange={e => handleSelect(e)}
         required={required}
@@ -117,6 +126,8 @@ PlantAutocomplete.propTypes = {
   label: PropTypes.string,
   required: PropTypes.bool,
   disabled: PropTypes.bool,
+  classNameInput: PropTypes.string,
+  classNameSelect: PropTypes.string,
 };
 
 export default PlantAutocomplete;

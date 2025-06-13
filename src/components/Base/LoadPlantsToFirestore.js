@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { collection, setDoc, doc, getDocs, deleteDoc } from 'firebase/firestore';
-import { db } from '../../firebase/firebaseConfig';
+import { deleteAllPlants, uploadPlants } from '../../utils/plantsFirestore';
 import plantsData from '../../mock/plants_full.json';
 
 const LoadPlantsToFirestore = () => {
@@ -8,15 +7,8 @@ const LoadPlantsToFirestore = () => {
   const handleLoad = async () => {
     setLoading(true);
     try {
-      // Eliminar todas las plantas existentes
-      const snapshot = await getDocs(collection(db, 'plants'));
-      const deletePromises = snapshot.docs.map(d => deleteDoc(doc(db, 'plants', d.id)));
-      await Promise.all(deletePromises);
-      // Cargar todas las plantas del JSON
-      for (const plant of plantsData) {
-        const plantWithId = { ...plant, id: plant.id.toString() };
-        await setDoc(doc(collection(db, 'plants'), plantWithId.id), plantWithId);
-      }
+      await deleteAllPlants();
+      await uploadPlants(plantsData);
       alert('¡Plantas actualizadas en Firestore! Si no ves los cambios, recarga la página.');
     } catch (err) {
       alert('Error al actualizar plantas en Firestore: ' + err.message);
@@ -38,4 +30,5 @@ const LoadPlantsToFirestore = () => {
   );
 };
 
-export default LoadPlantsToFirestore;
+// Este componente ya no es necesario en la UI principal. Puede eliminarse o dejarse solo para uso técnico/manual.
+// export default LoadPlantsToFirestore;

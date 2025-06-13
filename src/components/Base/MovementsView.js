@@ -1,17 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { collection, addDoc, onSnapshot, deleteDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase/firebaseConfig';
 import PlantForm from './PlantForm';
 import PlantAutocomplete from './PlantAutocomplete';
 import { toZonedTime } from 'date-fns-tz';
 import { registrarVenta } from './saleUtils';
 import PropTypes from 'prop-types';
+import SalesMobileForm from '../Movil/forms/SalesMobileForm';
+import SalesDesktopForm from '../Desktop/forms/SalesDesktopForm';
+import CashMobileForm from '../Movil/forms/CashMobileForm';
+import CashDesktopForm from '../Desktop/forms/CashDesktopForm';
 
 const MOVEMENT_TYPES = [
   { value: 'venta', label: 'Venta' },
   { value: 'compra', label: 'Compra' },
   { value: 'ingreso', label: 'Ingreso' },
-  { value: 'egreso', label: 'Egreso' }
+  { value: 'egreso', label: 'Egreso' },
+  { value: 'gasto', label: 'Gasto' }
 ];
 
 const PAYMENT_METHODS = [
@@ -20,7 +25,7 @@ const PAYMENT_METHODS = [
 ];
 
 // Este componente se moverá a la carpeta Base
-const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotals }) => {
+const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotals, onMovementAdded, selectedMonth, selectedYear, showOnlySalesOfDay, selectedDate }) => {
   const [plants, setPlants] = useState(propPlants || []);
   const [movements, setMovements] = useState([]);
   const [form, setForm] = useState({
@@ -42,12 +47,15 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
   const [errorMsg, setErrorMsg] = useState('');
   const [toastMsg, setToastMsg] = useState(null);
   const [toastError, setToastError] = useState(false);
+  const [editingMovement, setEditingMovement] = useState(null);
+  const [editForm, setEditForm] = useState(null);
+  const [editLoading, setEditLoading] = useState(false);
 
   // --- FILTRO MENSUAL ---
   const [reloadKey, setReloadKey] = useState(0);
   const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
+  const currentMonth = typeof selectedMonth === 'number' ? selectedMonth : now.getMonth();
+  const currentYear = typeof selectedYear === 'number' ? selectedYear : now.getFullYear();
   const movementsThisMonth = movements.filter(mov => {
     if (!mov.date) return false;
     const d = new Date(mov.date);
@@ -55,22 +63,25 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
     return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
   });
 
-  useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'movements'), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setMovements(data.sort((a, b) => new Date(b.date) - new Date(a.date)));
-    });
-    return () => unsubscribe();
-  }, [reloadKey]);
+  // --- NUEVO ESTADO PARA VENTA MULTIPRODUCTO ---
+  const [products, setProducts] = useState([]);
+  const [productForm, setProductForm] = useState({ plantId: '', quantity: 1, price: '' });
 
   useEffect(() => {
-    // Siempre sincronizar plantas con inventario en tiempo real
-    const unsubscribe = onSnapshot(collection(db, 'plants'), (snapshot) => {
+    // Sincronizar plantas y movimientos en un solo efecto para evitar race conditions
+    const unsubPlants = onSnapshot(collection(db, 'plants'), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setPlants(data);
     });
-    return () => unsubscribe();
-  }, []);
+    const unsubMovements = onSnapshot(collection(db, 'movements'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setMovements(data.sort((a, b) => new Date(b.date) - new Date(a.date)));
+    });
+    return () => {
+      unsubPlants();
+      unsubMovements();
+    };
+  }, [reloadKey]);
 
   const handleReload = () => {
     setReloadKey(k => k + 1);
@@ -93,37 +104,114 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
     return sum;
   }, 0);
 
+  // --- FUNCIONES PARA MANEJAR PRODUCTOS EN LA VENTA ---
+  const handleProductFormChange = (e) => {
+    const { name, value } = e.target;
+    setProductForm(prev => ({ ...prev, [name]: value }));
+  };
+  const handleAddProduct = async (e) => {
+    e?.preventDefault && e.preventDefault();
+    if (!productForm.plantId || !productForm.quantity || !productForm.price) return;
+    // Validar stock al agregar producto SOLO si es venta
+    if (form.type === 'venta') {
+      const plant = plants.find(p => String(p.id) === String(productForm.plantId));
+      if (!plant) {
+        setErrorMsg('Producto no encontrado en inventario.');
+        return;
+      }
+      const currentStock = plant.stock || 0;
+      if (currentStock < Number(productForm.quantity)) {
+        setErrorMsg(`Stock insuficiente para ${plant.name}. Disponible: ${currentStock}`);
+        return;
+      }
+    }
+    const plant = plants.find(p => String(p.id) === String(productForm.plantId));
+    setProducts(prev => [...prev, {
+      plantId: productForm.plantId,
+      name: plant?.name || '',
+      quantity: Number(productForm.quantity),
+      price: Number(productForm.price),
+      total: Number(productForm.quantity) * Number(productForm.price)
+    }]);
+    setProductForm({ plantId: '', quantity: 1, price: '' });
+    setErrorMsg('');
+  };
+  const handleRemoveProduct = (idx) => {
+    setProducts(prev => prev.filter((_, i) => i !== idx));
+  };
+  const ventaTotal = products.reduce((sum, p) => sum + p.total, 0);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
+    console.log('[MovementsView] handleSubmit called', {form, products, productForm});
     let total = form.total;
     let price = form.price;
-    // Forzar siempre dos decimales exactos
-    if ((form.type === 'venta' || form.type === 'compra')) {
-      if (!total && form.price && form.quantity) {
-        total = (Number(form.price) * Number(form.quantity)).toFixed(2);
+    // --- AJUSTE FLUJO VENTA/COMPRA UN SOLO PRODUCTO EN MÓVIL ---
+    let currentProducts = products;
+    let autoProduct = null;
+    if ((form.type === 'venta' || form.type === 'compra') && products.length === 0) {
+      // Si los campos requeridos están completos, agregamos el producto automáticamente
+      if (productForm.plantId && productForm.quantity && productForm.price) {
+        const plant = plants.find(p => String(p.id) === String(productForm.plantId));
+        // Validar stock solo para ventas
+        if (form.type === 'venta') {
+          if (!plant) {
+            setErrorMsg('Producto no encontrado en inventario.');
+            console.log('[MovementsView] ERROR: Producto no encontrado', {productForm, plants});
+            return;
+          }
+          const currentStock = plant.stock || 0;
+          if (currentStock < Number(productForm.quantity)) {
+            setErrorMsg(`Stock insuficiente para ${plant.name}. Disponible: ${currentStock}`);
+            console.log('[MovementsView] ERROR: Stock insuficiente', {plant, productForm});
+            return;
+          }
+        }
+        autoProduct = {
+          plantId: productForm.plantId,
+          name: plant?.name || '',
+          quantity: Number(productForm.quantity),
+          price: Number(productForm.price),
+          total: Number(productForm.quantity) * Number(productForm.price)
+        };
+        currentProducts = [autoProduct];
+        // No usar setProducts aquí, solo para el render visual
+        setProductForm({ plantId: '', quantity: 1, price: '' });
+        console.log('[MovementsView] Producto agregado automáticamente (móvil, submit directo)', autoProduct);
+      } else {
+        setErrorMsg('Agregue al menos un producto.');
+        console.log('[MovementsView] ERROR: Campos incompletos para agregar producto automáticamente', {productForm});
+        return;
       }
-      price = Number(form.price).toFixed(2);
+    }
+    if (form.type === 'venta' || form.type === 'compra') {
+      if (currentProducts.length === 0) {
+        setErrorMsg('Agregue al menos un producto.');
+        return;
+      }
+      total = currentProducts.reduce((sum, p) => sum + p.total, 0);
+    }
+    // Forzar siempre dos decimales exactos
+    if (form.type === 'venta' || form.type === 'compra') {
+      if (!total) total = 0;
+      price = '';
     } else {
       if (!total && form.price) {
         total = Number(form.price).toFixed(2);
       }
       price = form.price ? Number(form.price).toFixed(2) : '';
     }
-    // Validaciones adicionales para ventas
-    if (form.type === 'venta') {
-      if (!form.price || Number(form.price) <= 0) {
-        setErrorMsg('Debe ingresar un precio válido para la venta.');
-        return;
-      }
-      if (!form.plantId) {
-        setErrorMsg('Debe seleccionar un producto (planta, maceta u otro) para la venta.');
+    // Validaciones adicionales para ventas y compras multiproducto
+    if (form.type === 'venta' || form.type === 'compra') {
+      if (currentProducts.length === 0) {
+        setErrorMsg('Agregue al menos un producto.');
         return;
       }
     }
-    // Validación de saldo suficiente para compras y egresos
-    if ((form.type === 'compra' || form.type === 'egreso')) {
-      const monto = Number(form.type === 'ingreso' || form.type === 'egreso' ? form.price : total);
+    // Validación de saldo suficiente para egresos
+    if ((form.type === 'egreso')) {
+      const monto = Number(form.price);
       if (form.paymentMethod === 'mercadoPago' && monto > cajaActualMP) {
         setErrorMsg('No hay saldo suficiente en Mercado Pago para realizar esta operación.');
         showToast({ type: 'error', text: 'No hay saldo suficiente en Mercado Pago para realizar esta operación.' });
@@ -159,52 +247,73 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
     const isoArgentina = dateArg.toISOString();
 
     try {
+      console.log('DEBUG: Intentando guardar movimiento', form, products);
       if (form.type === 'venta' || form.type === 'compra') {
-        // Forzar que detail esté vacío en ventas y compras
-        const movementData = {
-          ...form,
-          detail: '',
-          total: Number(total),
-          price: Number(price),
-          date: isoArgentina
-        };
-        if (form.type === 'venta') {
-          const result = await registrarVenta({
-            plantId: form.plantId,
-            quantity: form.quantity,
-            price: Number(price),
-            paymentMethod: form.paymentMethod,
-            date: isoArgentina,
-            location: form.location,
-            notes: form.notes
-          });
-          if (!result.ok) {
-            setErrorMsg(result.error || 'Error al registrar la venta');
-            showToast({ type: 'error', text: result.error || 'Error al registrar la venta' });
-            setToastError(true);
-            return;
-          } else {
-            showToast({ type: 'success', text: 'Movimiento registrado correctamente' });
-            setToastError(false);
+        // Usar currentProducts (puede venir de products o del submit directo)
+        for (const p of currentProducts) {
+          // Validar stock antes de registrar venta
+          if (form.type === 'venta') {
+            const plantRef = doc(db, 'plants', String(p.plantId));
+            const plantSnap = await getDoc(plantRef);
+            if (!plantSnap.exists()) {
+              setErrorMsg('Producto no encontrado en inventario.');
+              return;
+            }
+            const currentStock = plantSnap.data().stock || 0;
+            if (currentStock < p.quantity) {
+              setErrorMsg(`Stock insuficiente para ${p.name}. Disponible: ${currentStock}`);
+              return;
+            }
+            await updateDoc(plantRef, { stock: currentStock - p.quantity });
           }
-        } else {
-          movementData.quantity = Number(form.quantity);
-          movementData.price = Number(price);
+          // Actualizar stock en compra
+          if (form.type === 'compra') {
+            const plantRef = doc(db, 'plants', String(p.plantId));
+            const plantSnap = await getDoc(plantRef);
+            if (!plantSnap.exists()) {
+              setErrorMsg('Producto no encontrado en inventario.');
+              return;
+            }
+            const currentStock = plantSnap.data().stock || 0;
+            await updateDoc(plantRef, { stock: currentStock + p.quantity });
+          }
+          const movementData = {
+            ...form,
+            plantId: p.plantId,
+            quantity: p.quantity,
+            price: p.price,
+            total: p.total,
+            detail: form.notes || '', // <-- ahora guarda lo que el usuario escribió en Detalle
+            date: isoArgentina
+          };
+          // Eliminar campos innecesarios
+          delete movementData.products;
           await addDoc(collection(db, 'movements'), movementData);
-          showToast({ type: 'success', text: 'Movimiento registrado correctamente' });
-          setToastError(false);
         }
+        showToast({ type: 'success', text: (form.type === 'venta' ? 'Venta' : 'Compra') + ' registrada correctamente' });
+        setProducts([]);
+        setProductForm({ plantId: '', quantity: 1, price: '' });
+        if (onMovementAdded) onMovementAdded();
       } else {
         let movementData = {
           ...form,
           total: Number(total),
-          price: price ? Number(price) : undefined,
-          date: isoArgentina
+          date: isoArgentina,
+          detail: form.notes || '', // asegurar que siempre se guarda el detalle
         };
+        // Si es compra de un solo producto, guardar también el nombre
+        if (form.type === 'compra' && form.plantId) {
+          const plant = plants.find(p => String(p.id) === String(form.plantId));
+          if (plant) movementData.plantName = plant.name;
+        }
+        if (price !== '' && price !== undefined && !isNaN(Number(price))) {
+          movementData.price = Number(price);
+        }
         delete movementData.quantity;
+        delete movementData.plantId;
         await addDoc(collection(db, 'movements'), movementData);
         showToast({ type: 'success', text: 'Movimiento registrado correctamente' });
-        setToastError(false);
+        if (onMovementAdded) onMovementAdded();
       }
       setForm({
         type: 'venta',
@@ -215,13 +324,18 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
         total: '',
         paymentMethod: 'efectivo',
         date: new Date().toISOString().slice(0, 16),
-        location: '',
+        location: form.location, // Mantener el último lugar
         notes: ''
       });
+      // Guardar el último lugar en localStorage
+      if (form.location) {
+        localStorage.setItem('lastLocation', form.location);
+      }
     } catch (err) {
       setErrorMsg('Error al registrar el movimiento');
       showToast({ type: 'error', text: 'Error al registrar el movimiento' });
       setToastError(true);
+      console.error('ERROR al guardar movimiento:', err);
     }
   };
 
@@ -260,172 +374,7 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
 
   const isMobileDevice = isMobile;
 
-  // --- BLOQUE DE TOTALES DIARIOS PARA MÓVIL ---
-  const TotalsBlock = () => (
-    <div className="mb-4">
-      <div className="flex flex-col gap-2 text-center">
-        <div className="font-bold text-lg text-gray-800">Totales del Día</div>
-        <div className="flex flex-row justify-center gap-4">
-          <div className="bg-green-100 rounded px-3 py-1">
-            <div className="text-xs text-gray-600">Efectivo</div>
-            <div className="font-semibold text-green-700">${cajaFisicaDia.toLocaleString('es-AR', { style: 'currency', currency: 'ARS' })}</div>
-          </div>
-          <div className="bg-blue-100 rounded px-3 py-1">
-            <div className="text-xs text-gray-600">Mercado Pago</div>
-            <div className="font-semibold text-blue-700">${cajaMPDia.toLocaleString('es-AR', { style: 'currency', currency: 'ARS' })}</div>
-          </div>
-          <div className="bg-yellow-100 rounded px-3 py-1">
-            <div className="text-xs text-gray-600">Total</div>
-            <div className="font-semibold text-yellow-700">${totalGeneralDia.toLocaleString('es-AR', { style: 'currency', currency: 'ARS' })}</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderForm = () => (
-    <form onSubmit={handleSubmit} className="bg-white p-4 rounded-lg shadow space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Tipo</label>
-          <select name="type" value={form.type} onChange={handleChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
-            {MOVEMENT_TYPES.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Detalle</label>
-          <input 
-            name="detail" 
-            value={form.type === 'venta' ? '' : form.detail}
-            onChange={handleChange}
-            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-            disabled={form.type === 'venta'}
-            placeholder={form.type === 'venta' ? 'Solo para ingresos/egresos/compras' : ''}
-          />
-        </div>
-        {/* Producto solo para venta y compra */}
-        {(form.type === 'venta' || form.type === 'compra') && (
-          <div>
-            <PlantAutocomplete
-              plants={plants}
-              value={form.plantId ? String(form.plantId) : ''}
-              onChange={val => {
-                // Solo guardar si es un id válido
-                if (val && plants.some(p => String(p.id) === String(val))) {
-                  setForm(f => ({ ...f, plantId: String(val) }));
-                } else {
-                  setForm(f => ({ ...f, plantId: '' }));
-                }
-                setShowSuggestPlant(false);
-                setSuggestedPlantName('');
-              }}
-              onBlur={() => {
-                setShowSuggestPlant(false);
-                setSuggestedPlantName('');
-              }}
-              onSelect={() => {
-                setShowSuggestPlant(false);
-                setSuggestedPlantName('');
-                setTimeout(() => {
-                  const el = document.activeElement;
-                  if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-                }, 100);
-              }}
-              required={form.type === 'venta'}
-              label="Producto"
-              disabled={form.type !== 'venta' && form.type !== 'compra'}
-            />
-          </div>
-        )}
-        {/* Cantidad solo para venta, o para compra si hay producto seleccionado */}
-        {((form.type === 'venta') || (form.type === 'compra' && form.plantId)) && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Cantidad</label>
-            <input type="number" name="quantity" min="1" value={form.quantity} onChange={handleChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
-          </div>
-        )}
-        {/* Para ingreso y egreso, cantidad y producto deshabilitados/no renderizados */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Precio</label>
-          <input type="number" name="price" min="0" value={form.price} onChange={handleChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Total</label>
-          <input type="number" name="total" min="0" value={form.type === 'ingreso' || form.type === 'egreso' ? form.price : form.total} onChange={handleChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" placeholder="Se calcula automáticamente" disabled={form.type === 'ingreso' || form.type === 'egreso'} />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Método de Pago</label>
-          <select name="paymentMethod" value={form.paymentMethod} onChange={handleChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
-            {PAYMENT_METHODS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-          </select>
-        </div>
-        {/* Fecha: solo editable si no es móvil y es venta, siempre editable para otros movimientos */}
-        {((form.type !== 'venta') || !isMobileDevice) && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Fecha</label>
-            <input type="date" name="date" value={form.date?.slice(0,10) || ''} onChange={handleChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
-          </div>
-        )}
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Lugar</label>
-          <input name="location" value={form.location} onChange={handleChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
-        </div>
-        <div className="md:col-span-2">
-          <label className="block text-sm font-medium text-gray-700">Notas</label>
-          <input name="notes" value={form.notes} onChange={handleChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
-        </div>
-      </div>
-      <button type="submit" className="mt-4 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Registrar Movimiento</button>
-      {errorMsg && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mb-2 text-center">{errorMsg}</div>
-      )}
-      {showSuggestPlant && (
-        <div className="bg-yellow-100 border-l-4 border-yellow-500 p-4 rounded mb-4">
-          <p className="mb-2">¿Deseas agregar <b>{suggestedPlantName}</b> como nuevo producto al inventario?</p>
-          <button
-            className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 mr-2"
-            onClick={() => { setShowPlantForm(true); setShowSuggestPlant(false); }}
-          >
-            Sí, agregar producto
-          </button>
-          <button
-            className="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400"
-            onClick={() => setShowSuggestPlant(false)}
-          >
-            No, gracias
-          </button>
-        </div>
-      )}
-      {showPlantForm && (
-        <div className="bg-white p-4 rounded-lg shadow mb-4">
-          <h3 className="text-lg font-bold mb-2">Nuevo Producto</h3>
-          <PlantForm
-            initialData={{ name: suggestedPlantName, basePrice: '', purchasePrice: '', stock: '', type: 'interior' }}
-            onSubmit={() => { setShowPlantForm(false); }}
-            onCancel={() => setShowPlantForm(false)}
-          />
-        </div>
-      )}
-    </form>
-  );
-
-  // Eliminar todos los movimientos del mes actual
-  const handleDeleteMonthMovements = async () => {
-    if (!window.confirm('¿Seguro que quieres borrar TODOS los movimientos de caja de este mes? Esta acción no se puede deshacer.')) return;
-    const month = now.getMonth();
-    const year = now.getFullYear();
-    const toDelete = movements.filter(mov => {
-      if (!mov.date) return false;
-      const d = new Date(mov.date);
-      return d.getMonth() === month && d.getFullYear() === year;
-    });
-    for (const mov of toDelete) {
-      await deleteDoc(doc(db, 'movements', mov.id));
-    }
-    handleReload();
-    alert('Movimientos del mes eliminados.');
-  };
-
+  // Toast para mostrar mensajes de éxito/error
   const showToast = (msg) => {
     setToastMsg(msg);
     setToastError(msg.type === 'error');
@@ -438,195 +387,312 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
     }
   };
 
-  // Limpiar plantId si el tipo de movimiento deja de ser venta o compra
-  useEffect(() => {
-    if (form.type !== 'venta' && form.type !== 'compra' && form.plantId) {
-      setForm(f => ({ ...f, plantId: '' }));
-    }
-  }, [form.type]);
-
-  // DEBUG: Log para ver qué valor se guarda al seleccionar producto
-  // useEffect(() => {
-  //   if (form.plantId) {
-  //     const selected = plants.find(p => String(p.id) === String(form.plantId));
-  //     console.log('DEBUG plantId:', form.plantId, 'selected:', selected);
-  //   }
-  // }, [form.plantId, plants]);
-
-  if (showOnlyForm) {
-    // Solo mostrar el formulario de carga de caja
-    return (
-      <div className="space-y-6">
-        {/* Renderiza totales y movimientosToday si corresponde (móvil y prop presente) */}
-        {isMobileDevice && typeof renderTotals === 'function' && renderTotals({
-          cajaFisicaDia,
-          cajaMPDia,
-          totalGeneralDia,
-          ventasEfectivoDia,
-          ventasMPDia,
-          totalVentasDia,
-          totalComprasDia,
-          cantidadProductosVendidosDia,
-          movementsToday // <-- agregar para exponer los movimientos del día
-        })}
-        {/* Renderiza solo el formulario de movimientos (compra, venta, ingreso, egreso) */}
-        {renderForm()}
-      </div>
-    );
-  }
-  if (hideForm) {
-    // Solo mostrar la tabla/lista de movimientos, sin formulario
-    return (
-      <div className="space-y-6">
-        <div className="flex flex-col items-center mb-4 w-full">
-          <div className="w-full max-w-xl bg-gradient-to-br from-pink-100 via-white to-pink-200 rounded-lg shadow border border-pink-300 py-4 px-3">
-            <h2 className="text-2xl font-black text-black text-center tracking-wide mb-1 font-sans">
-              Movimientos de Caja
-            </h2>
-            <h3 className="text-lg font-bold text-pink-700 text-center uppercase tracking-wider mb-2">
-              Ventas Diarias
-            </h3>
-            <hr className="border-t-2 border-pink-400 w-1/2 mx-auto my-2" />
-          </div>
-          <div className="w-full max-w-xl flex flex-row justify-between items-center mt-2">
-            <button onClick={handleReload} className="px-3 py-1 text-sm bg-blue-100 hover:bg-blue-200 rounded border border-blue-300 font-semibold">
-              Recargar
-            </button>
-            <div className="text-base text-green-700 font-bold px-2 border-2 border-purple-300 rounded-lg bg-white shadow-sm">
-              {now.toLocaleString('es-AR', { month: 'long', year: 'numeric' })}
-            </div>
-          </div>
+  // --- BLOQUE DE TOTALES DIARIOS PARA MÓVIL ---
+  const TotalsBlock = () => (
+    <div className="mb-4">
+      <div className="flex w-full gap-2 mb-2">
+        <div className="flex-1 bg-green-100 rounded-lg shadow p-2 flex flex-col items-center border border-green-300">
+          <span className="text-gray-500 text-xs">Efectivo</span>
+          <span className="text-lg font-bold text-green-700">${cajaFisicaDia.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
-        {/* Tabla de movimientos del mes */}
-        {movementsThisMonth.length === 0 ? (
-          <div className="text-center text-gray-500 py-8">No hay movimientos registrados este mes.</div>
-        ) : (
-          <table className="min-w-full divide-y divide-gray-200 text-xs">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-2 py-1">Fecha</th>
-                <th className="px-2 py-1">Tipo</th>
-                <th className="px-2 py-1">Detalle</th>
-                <th className="px-2 py-1">Producto</th>
-                <th className="px-2 py-1">Cantidad</th>
-                <th className="px-2 py-1">Precio</th>
-                <th className="px-2 py-1">Total</th>
-                <th className="px-2 py-1">Método</th>
-                <th className="px-2 py-1">Lugar</th>
-                <th className="px-2 py-1">Notas</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {movementsThisMonth.map((mov, idx) => (
-                <tr key={mov.id || idx} className={mov.type === 'compra' ? 'bg-red-50' : mov.type === 'egreso' ? 'bg-yellow-50' : mov.type === 'ingreso' ? 'bg-green-50' : ''}>
-                  <td className="px-2 py-1">{mov.date ? new Date(mov.date).toLocaleDateString() : '-'}</td>
-                  <td className="px-2 py-1">{mov.type}</td>
-                  <td className="px-2 py-1">{(mov.type === 'venta' || mov.type === 'compra') ? '' : mov.detail}</td>
-                  <td className="px-2 py-1">{(mov.type === 'venta' || mov.type === 'compra') ? (plants.find(p => p.id === Number(mov.plantId))?.name || mov.detail || '-') : '-'}</td>
-                  <td className="px-2 py-1 text-right">{(mov.type === 'venta' || mov.type === 'compra') ? mov.quantity : ''}</td>
-                  <td className="px-2 py-1 text-right">{mov.price ? `$${mov.price}` : ''}</td>
-                  <td className="px-2 py-1 text-right">{mov.total ? `$${mov.total}` : ''}</td>
-                  <td className="px-2 py-1">{mov.paymentMethod}</td>
-                  <td className="px-2 py-1">{mov.location}</td>
-                  <td className="px-2 py-1">{mov.notes}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <div className="flex-1 bg-blue-100 rounded-lg shadow p-2 flex flex-col items-center border border-blue-300">
+          <span className="text-gray-500 text-xs">Mercado Pago</span>
+          <span className="text-lg font-bold text-blue-700">${cajaMPDia.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        </div>
+        <div className="flex-1 bg-yellow-100 rounded-lg shadow p-2 flex flex-col items-center border border-yellow-300">
+          <span className="text-gray-500 text-xs">Total</span>
+          <span className="text-lg font-bold text-yellow-700">${totalGeneralDia.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        </div>
       </div>
-    );
-  }
+      <div className="w-full bg-purple-100 rounded-lg shadow p-4 flex flex-col items-center border border-purple-300">
+        <span className="text-gray-500 text-sm">Artículos vendidos hoy</span>
+        <span className="text-2xl font-bold text-purple-700">{cantidadProductosVendidosDia}</span>
+      </div>
+    </div>
+  );
+
+  // --- BLOQUE DE HEADER Y FORMULARIO PARA ESCRITORIO ---
+  // Solo para escritorio, no modificar la lógica móvil
 
   // --- TOTALES DEL MES ---
   // (Ocultamos todos los totales y resúmenes automáticos, solo mostramos el formulario y la tabla de movimientos)
 
+  // --- FUNCIONES DE EDICIÓN INLINE ---
+  const handleEditClick = (mov) => {
+    setEditingMovement(mov.id);
+    setEditForm({ ...mov });
+  };
+  const handleEditChange = (e) => {
+    const { name, value } = e.target;
+    setEditForm(prev => ({ ...prev, [name]: value }));
+  };
+  const handleEditCancel = () => {
+    setEditingMovement(null);
+    setEditForm(null);
+  };
+  const handleEditSave = async () => {
+    if (!editForm) return;
+    setEditLoading(true);
+    console.log('DEBUG: handleEditSave called', editForm, editingMovement);
+    try {
+      if ((editForm.type === 'venta' || editForm.type === 'compra') && (!editForm.plantId || !editForm.quantity)) {
+        showToast({ type: 'error', text: 'Producto y cantidad requeridos para ventas/compras.' });
+        setEditLoading(false);
+        return;
+      }
+      // Solo incluir los campos relevantes según el tipo
+      const data = { ...editForm };
+      if (editForm.type !== 'venta' && editForm.type !== 'compra') {
+        delete data.quantity;
+        delete data.price;
+        delete data.plantId;
+      } else {
+        data.quantity = Number(editForm.quantity);
+        data.price = Number(editForm.price);
+        data.plantId = editForm.plantId;
+      }
+      data.total = editForm.total ? Number(editForm.total) : 0;
+      const movRef = doc(db, 'movements', editingMovement);
+      console.log('DEBUG: updateDoc', movRef, data);
+      await updateDoc(movRef, data);
+      showToast({ type: 'success', text: 'Movimiento actualizado.' });
+      setEditingMovement(null);
+      setEditForm(null);
+    } catch (err) {
+      console.error('ERROR en handleEditSave:', err);
+      showToast({ type: 'error', text: 'Error al actualizar el movimiento.' });
+    }
+    setEditLoading(false);
+  };
+
+  const formatDateForInput = (dateStr) => {
+    if (!dateStr) return '';
+    // Acepta ISO con o sin zona horaria, recorta a YYYY-MM-DDTHH:mm
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+    // Ajusta a local para input type="datetime-local"
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  // Autocompletar precio y mostrar stock al seleccionar producto
+  useEffect(() => {
+    if (!productForm.plantId) return;
+    const plant = plants.find(p => String(p.id) === String(productForm.plantId));
+    if (!plant) return;
+    // Sugerir precio según tipo de movimiento
+    let suggestedPrice = '';
+    if (form.type === 'venta') {
+      suggestedPrice = plant.purchasePrice || plant.basePrice || '';
+    } else if (form.type === 'compra') {
+      suggestedPrice = plant.basePrice || plant.purchasePrice || '';
+    }
+    // Solo autocompletar si el usuario no ha modificado el precio manualmente
+    if (!productForm.price) {
+      setProductForm(prev => ({ ...prev, price: suggestedPrice }));
+    }
+  }, [productForm.plantId, form.type, plants]);
+
+  // Inicializar location desde localStorage si existe
+  useEffect(() => {
+    const lastLocation = localStorage.getItem('lastLocation');
+    if (lastLocation) {
+      setForm(prev => ({ ...prev, location: lastLocation }));
+    }
+  }, []);
+
+  // Detectar si se debe mostrar el selector de fecha (solo móvil, solo si selectedDate viene como prop)
+  const showDateInput = isMobile && selectedDate !== undefined && false; // Forzar a false para ventas móvil
+
   // Render sugerencia de alta de planta
   return (
-    <div className="space-y-6">
-      {toastMsg && (
-        toastMsg.type === 'success' ? (
-          <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded shadow-lg text-white text-center transition-all duration-300 bg-green-600 animate-slide-down" style={{marginBottom: 64}}>
-            {toastMsg.text}
-          </div>
-        ) : (
-          <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded shadow-lg text-white text-center transition-all duration-300 bg-red-600 flex flex-col items-center gap-2 animate-slide-down" style={{marginBottom: 64}}>
-            <span>{toastMsg.text}</span>
-            <button className="mt-1 px-3 py-1 bg-white text-red-700 rounded font-semibold border border-red-300 hover:bg-red-50" onClick={() => setToastMsg(null)}>Aceptar</button>
-          </div>
-        )
-      )}
-      <div className="flex flex-col items-center mb-4 w-full">
-        <div className="w-full max-w-xl bg-gradient-to-br from-pink-100 via-white to-pink-200 rounded-lg shadow border border-pink-300 py-4 px-3">
-          <h2 className="text-2xl font-black text-black text-center tracking-wide mb-1 font-sans">
-            Movimientos de Caja
-          </h2>
-          <h3 className="text-lg font-bold text-pink-700 text-center uppercase tracking-wider mb-2">
-            Ventas Diarias
-          </h3>
-          <hr className="border-t-2 border-pink-400 w-1/2 mx-auto my-2" />
-        </div>
-        <div className="w-full max-w-xl flex flex-row justify-between items-center mt-2">
-          <button onClick={handleReload} className="px-3 py-1 text-sm bg-blue-100 hover:bg-blue-200 rounded border border-blue-300 font-semibold">
-            Recargar
-          </button>
-          <div className="text-base text-green-700 font-bold px-2 border-2 border-purple-300 rounded-lg bg-white shadow-sm">
-            {now.toLocaleString('es-AR', { month: 'long', year: 'numeric' })}
-          </div>
-        </div>
-      </div>
-      {/* Solo formulario y tabla, sin totales ni resúmenes */}
-      {!hideForm && renderForm()}
-      <div className="bg-white rounded-lg shadow p-6 mt-6">
-        <h3 className="text-lg font-medium mb-4">Histórico de Movimientos del Mes</h3>
-        <div className="overflow-x-auto max-h-96 overflow-y-auto">
-          {movementsThisMonth.length === 0 ? (
-            <div className="text-center text-gray-500 py-8">No hay movimientos registrados este mes.</div>
+    <div>
+      {/* Sticky caja de escritorio con el formulario */}
+      <div className={`sticky top-0 z-20 bg-white border border-gray-100 rounded-xl shadow-md px-2 py-1 w-full mx-0 mt-6 ${isMobileDevice ? 'block' : ''}`}>
+        {/* Formulario desacoplado según dispositivo y tipo */}
+        {!hideForm && (
+          (form.type === 'venta' && isMobileDevice) ? (
+            <SalesMobileForm
+              form={form}
+              productForm={productForm}
+              plants={plants}
+              handleChange={handleChange}
+              handleProductFormChange={handleProductFormChange}
+              handleAddProduct={handleAddProduct}
+              handleRemoveProduct={handleRemoveProduct}
+              ventaTotal={ventaTotal}
+              products={products}
+              onSubmit={handleSubmit}
+              errorMsg={errorMsg}
+            />
+          ) : (form.type === 'venta' && !isMobileDevice) ? (
+            <SalesDesktopForm
+              form={form}
+              productForm={productForm}
+              plants={plants}
+              handleChange={handleChange}
+              handleProductFormChange={handleProductFormChange}
+              handleAddProduct={handleAddProduct}
+              handleRemoveProduct={handleRemoveProduct}
+              ventaTotal={ventaTotal}
+              products={products}
+              onSubmit={handleSubmit}
+              errorMsg={errorMsg}
+            />
+          ) : (isMobileDevice ? (
+            <CashMobileForm
+              form={form}
+              handleChange={handleChange}
+              onSubmit={handleSubmit}
+              errorMsg={errorMsg}
+            />
           ) : (
-          <table className="min-w-full divide-y divide-gray-200 text-xs">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-2 py-1">Fecha</th>
-                <th className="px-2 py-1">Tipo</th>
-                <th className="px-2 py-1">Detalle</th>
-                <th className="px-2 py-1">Producto</th>
-                <th className="px-2 py-1">Cantidad</th>
-                <th className="px-2 py-1">Precio</th>
-                <th className="px-2 py-1">Total</th>
-                <th className="px-2 py-1">Método</th>
-                <th className="px-2 py-1">Lugar</th>
-                <th className="px-2 py-1">Notas</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {movementsThisMonth.map(mov => (
-                <tr key={mov.id} className={mov.type === 'compra' ? 'bg-red-50' : mov.type === 'egreso' ? 'bg-yellow-50' : mov.type === 'ingreso' ? 'bg-green-50' : ''}>
-                  <td className="px-2 py-1">{mov.date ? new Date(mov.date).toLocaleString('es-AR', {
-                    timeZone: 'America/Argentina/Buenos_Aires',
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit'
-                  }) : ''}</td>
-                  <td className="px-2 py-1">{MOVEMENT_TYPES.find(t => t.value === mov.type)?.label || mov.type}</td>
-                  <td className="px-2 py-1">{mov.type === 'venta' ? '' : mov.detail}</td>
-                  <td className="px-2 py-1">{mov.type === 'venta' ? (plants.find(p => p.id === Number(mov.plantId))?.name || mov.detail || '-') : '-'}</td>
-                  <td className="px-2 py-1 text-right">
-                    {(mov.type === 'venta' || mov.type === 'compra') ? mov.quantity : ''}
-                  </td>
-                  <td className="px-2 py-1 text-right">{mov.price ? `$${mov.price}` : ''}</td>
-                  <td className="px-2 py-1 text-right">{mov.total ? `$${mov.total}` : ''}</td>
-                  <td className="px-2 py-1">{PAYMENT_METHODS.find(m => m.value === mov.paymentMethod)?.label || mov.paymentMethod}</td>
-                  <td className="px-2 py-1">{mov.location}</td>
-                  <td className="px-2 py-1">{mov.notes}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          )}
-        </div>
+            <CashDesktopForm
+              form={form}
+              handleChange={handleChange}
+              onSubmit={handleSubmit}
+              errorMsg={errorMsg}
+            />
+          ))
+        )}
+      </div>
+      {/* Mostrar solo el formulario si showOnlyForm está activo (ej: Caja Diaria móvil) */}
+      {showOnlyForm ? null : (
+        <>
+          {/* Historial de movimientos fuera del sticky */}
+          <div className="mt-6 p-3 bg-white rounded-lg shadow w-full mx-0 overflow-x-auto">
+            <h2 className="text-base font-bold mb-2">Histórico de Movimientos del Mes</h2>
+            {movementsThisMonth.length > 0 ? (
+              <table className="min-w-full border-collapse border border-gray-200 text-xs whitespace-nowrap">
+                <thead>
+                  <tr>
+                    <th className="border border-gray-200 px-2 py-1">Fecha</th>
+                    <th className="border border-gray-200 px-2 py-1">Producto</th>
+                    <th className="border border-gray-200 px-2 py-1">Cantidad</th>
+                    <th className="border border-gray-200 px-2 py-1">Precio</th>
+                    <th className="border border-gray-200 px-2 py-1">Total</th>
+                    <th className="border border-gray-200 px-2 py-1">Método de Pago</th>
+                    <th className="border border-gray-200 px-2 py-1">Tipo</th>
+                    <th className="border border-gray-200 px-2 py-1">Lugar</th>
+                    {/* Ocultar Notas y Acciones en móvil para mejor visualización */}
+                    <th className="border border-gray-200 px-2 py-1 hidden sm:table-cell">Notas</th>
+                    <th className="border border-gray-200 px-2 py-1 hidden sm:table-cell">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {movementsThisMonth.map(mov => {
+                    let rowClass = '';
+                    if (mov.type === 'ingreso') rowClass = 'bg-green-100 text-green-900';
+                    if (mov.type === 'egreso') rowClass = 'bg-black text-white';
+                    if (mov.type === 'compra') rowClass = 'bg-red-600 text-white';
+                    if (mov.type === 'gasto') rowClass = 'bg-orange-500 text-white';
+                    const isEditing = editingMovement === mov.id;
+                    return (
+                      <tr key={mov.id} className={rowClass}>
+                        {isEditing ? (
+                          <>
+                            <td className="border border-gray-200 px-2 py-1">
+                              <input type="datetime-local" name="date" value={formatDateForInput(editForm.date)} onChange={handleEditChange} className="w-full text-xs border border-gray-300 rounded bg-white text-black px-1 py-0.5" />
+                            </td>
+                            <td className="border border-gray-200 px-2 py-1">
+                              {(editForm.type === 'venta' || editForm.type === 'compra') ? (
+                                <select name="plantId" value={editForm.plantId || ''} onChange={handleEditChange} className="w-full text-xs border border-gray-300 rounded bg-white text-black px-1 py-0.5">
+                                  <option value="">-</option>
+                                  {plants.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                </select>
+                              ) : '-'}
+                            </td>
+                            <td className="border border-gray-200 px-2 py-1">
+                              {(editForm.type === 'venta' || editForm.type === 'compra') ? (
+                                <input type="number" name="quantity" min="1" value={editForm.quantity ?? ''} onChange={handleEditChange} className="w-full text-xs border border-gray-300 rounded bg-white text-black px-1 py-0.5" />
+                              ) : ''}
+                            </td>
+                            <td className="border border-gray-200 px-2 py-1">
+                              <input type="number" name="price" value={editForm.price ?? ''} onChange={handleEditChange} className="w-full text-xs border border-gray-300 rounded bg-white text-black px-1 py-0.5" />
+                            </td>
+                            <td className="border border-gray-200 px-2 py-1">
+                              <input type="number" name="total" value={editForm.total ?? ''} onChange={handleEditChange} className="w-full text-xs border border-gray-300 rounded bg-white text-black px-1 py-0.5" />
+                            </td>
+                            <td className="border border-gray-200 px-2 py-1">
+                              <select name="paymentMethod" value={editForm.paymentMethod || ''} onChange={handleEditChange} className="w-full text-xs border border-gray-300 rounded bg-white text-black px-1 py-0.5">
+                                {PAYMENT_METHODS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                              </select>
+                            </td>
+                            <td className="border border-gray-200 px-2 py-1">
+                              <select name="type" value={editForm.type || ''} onChange={handleEditChange} className="w-full text-xs border border-gray-300 rounded bg-white text-black px-1 py-0.5">
+                                {MOVEMENT_TYPES.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                              </select>
+                            </td>
+                            <td className="border border-gray-200 px-2 py-1">
+                              <input name="location" value={editForm.location ?? ''} onChange={handleEditChange} className="w-full text-xs border border-gray-300 rounded bg-white text-black px-1 py-0.5" />
+                            </td>
+                            <td className="border border-gray-200 px-2 py-1">
+                              <input name="notes" value={editForm.notes ?? ''} onChange={handleEditChange} className="w-full text-xs border border-gray-300 rounded bg-white text-black px-1 py-0.5" />
+                            </td>
+                            <td className="border border-gray-200 px-2 py-1 flex gap-1 justify-center items-center">
+                              {isEditing ? (
+                                <>
+                                  <button type="button" onClick={handleEditSave} className="bg-green-600 text-white px-2 py-1 rounded text-xs flex items-center" disabled={editLoading} aria-label="Guardar movimiento">
+                                    <span className="material-icons text-base align-middle">Guardar</span>
+                                  </button>
+                                  <button type="button" onClick={handleEditCancel} className="bg-gray-400 text-white px-2 py-1 rounded text-xs flex items-center" disabled={editLoading} aria-label="Cancelar edición">
+                                    <span className="material-icons text-base align-middle">Cerrar</span>
+                                  </button>
+                                </>
+                              ) : (
+                                <button type="button" onClick={() => handleEditClick(mov)} className="bg-blue-500 text-white px-2 py-1 rounded text-xs flex items-center" aria-label="Editar movimiento">
+                                  <span className="material-icons text-base align-middle">edit</span>
+                                </button>
+                              )}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="border border-gray-200 px-2 py-1">{mov.date ? new Date(mov.date).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</td>
+                            <td className="border border-gray-200 px-2 py-1">
+                              {plants && mov.plantId
+                                ? (plants.find(p => String(p.id) === String(mov.plantId))?.name || mov.plantId || '-')
+                                : '-'}
+                            </td>
+                            <td className="border border-gray-200 px-2 py-1 text-right">
+                              {(mov.type === 'venta' || mov.type === 'compra') && mov.products && Array.isArray(mov.products)
+                                ? mov.products.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0)
+                                : (mov.type === 'venta' || mov.type === 'compra') ? mov.quantity : ''}
+                            </td>
+                            <td className="border border-gray-200 px-2 py-1 text-right">
+                              {(mov.type === 'venta' || mov.type === 'compra') && mov.products && Array.isArray(mov.products)
+                                ? ''
+                                : mov.price ? `$${mov.price}` : ''}
+                            </td>
+                            <td className="border border-gray-200 px-2 py-1 text-right">{mov.total ? `$${mov.total}` : ''}</td>
+                            <td className="border border-gray-200 px-2 py-1">{PAYMENT_METHODS.find(m => m.value === mov.paymentMethod)?.label || mov.paymentMethod}</td>
+                            <td className="border border-gray-200 px-2 py-1">{MOVEMENT_TYPES.find(t => t.value === mov.type)?.label || mov.type}</td>
+                            <td className="border border-gray-200 px-2 py-1">{mov.location}</td>
+                            <td className="border border-gray-200 px-2 py-1 hidden sm:table-cell">{mov.notes}</td>
+                            <td className="border border-gray-200 px-2 py-1 flex gap-1 justify-center items-center">
+                              <button onClick={() => handleEditClick(mov)} className="bg-blue-500 text-white px-2 py-1 rounded text-xs flex items-center" aria-label="Editar movimiento">
+                                <span className="material-icons text-base align-middle">Editar</span>
+                              </button>
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : (
+              <p className="text-gray-500 text-xs">No hay movimientos registrados este mes.</p>
+            )}
+          </div>
+        </>
+      )}
+      {/* DEBUG: Mostrar datos en consola para ver si llegan desde Firebase */}
+      <div style={{ display: 'none' }}>
+        {useEffect(() => {
+          console.log('PLANTS:', plants);
+          console.log('MOVEMENTS:', movements);
+        }, [plants, movements])}
       </div>
     </div>
   );
@@ -637,6 +703,11 @@ MovementsView.propTypes = {
   hideForm: PropTypes.bool,
   showOnlyForm: PropTypes.bool,
   renderTotals: PropTypes.func,
+  onMovementAdded: PropTypes.func,
+  selectedMonth: PropTypes.number,
+  selectedYear: PropTypes.number,
+  showOnlySalesOfDay: PropTypes.bool,
+  selectedDate: PropTypes.string,
 };
 
 export default MovementsView;

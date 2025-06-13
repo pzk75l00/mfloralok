@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import MovementsView from './MovementsView';
+import MovementsView from './Base/MovementsView';
 import PlantsView from './PlantsView';
 
 // Este componente se moverá a la carpeta Movil

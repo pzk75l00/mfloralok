@@ -1,7 +1,16 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import PropTypes from 'prop-types';
+import { UserContext } from '../App';
 
-const Navigation = ({ currentView, setCurrentView, sidebarMode }) => {
+const Navigation = ({ currentView, setCurrentView, sidebarMode, userData: userDataProp }) => {
+  const context = useContext(UserContext);
+  const userData = userDataProp || (context && context.userData);
+
+  // Mostrar loader si userData aún no está disponible pero el usuario está logueado
+  if (userData === null && context && context.user) {
+    return <div className="text-gray-400 p-4">Cargando menú...</div>;
+  }
+
   const views = [
     { id: 'plants', label: 'Productos', icon: '📦' },
     { id: 'movements', label: 'Caja', icon: '💼' },
@@ -9,12 +18,17 @@ const Navigation = ({ currentView, setCurrentView, sidebarMode }) => {
     { id: 'reportes', label: 'Reportes', icon: '📈' },
     { id: 'carga-movil', label: 'Carga Móvil', icon: '📲', mobileOnly: true }
   ];
+  const adminView = { id: 'admin', label: 'Administración', icon: '🛠️', adminOnly: true };
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
 
   // --- Sidebar para escritorio ---
   if (!isMobile && sidebarMode) {
+    // DEBUG: Mostrar el rol actual arriba del menú
     return (
       <nav className="flex flex-col gap-2 mt-4">
+        {userData && (
+          <div className="text-xs text-gray-500 mb-2">Rol: <b>{userData.rol || 'sin rol'}</b></div>
+        )}
         {views.filter(view => !view.mobileOnly).map(view => (
           <button
             key={view.id}
@@ -29,6 +43,21 @@ const Navigation = ({ currentView, setCurrentView, sidebarMode }) => {
             {sidebarMode === 'full' && <span className="text-base font-medium">{view.label}</span>}
           </button>
         ))}
+        {/* Opción de administración solo para admin/dios */}
+        {userData && (userData.rol === 'admin' || userData.rol === 'dios') && (
+          <button
+            key={adminView.id}
+            onClick={() => setCurrentView(adminView.id)}
+            className={`flex items-center gap-3 px-3 py-2 rounded-lg font-semibold transition w-full text-left
+              ${currentView === adminView.id
+                ? 'bg-green-600 text-white shadow'
+                : 'text-gray-700 hover:bg-green-100 hover:text-green-700'}`}
+            title={adminView.label}
+          >
+            <span className="text-2xl">{adminView.icon}</span>
+            {sidebarMode === 'full' && <span className="text-base font-medium">{adminView.label}</span>}
+          </button>
+        )}
       </nav>
     );
   }
@@ -79,7 +108,8 @@ const Navigation = ({ currentView, setCurrentView, sidebarMode }) => {
 Navigation.propTypes = {
   currentView: PropTypes.string.isRequired,
   setCurrentView: PropTypes.func.isRequired,
-  sidebarMode: PropTypes.string
+  sidebarMode: PropTypes.string,
+  userData: PropTypes.object // Puede ser null o un objeto de usuario
 };
 
 export default Navigation;
