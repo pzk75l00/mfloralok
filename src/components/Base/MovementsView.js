@@ -545,6 +545,13 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
               handleChange={handleChange}
               onSubmit={handleSubmit}
               errorMsg={errorMsg}
+              plants={plants}
+              productForm={productForm}
+              handleProductFormChange={handleProductFormChange}
+              handleAddProduct={handleAddProduct}
+              handleRemoveProduct={handleRemoveProduct}
+              products={products}
+              ventaTotal={ventaTotal}
             />
           ) : (
             <CashDesktopForm
@@ -552,6 +559,13 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
               handleChange={handleChange}
               onSubmit={handleSubmit}
               errorMsg={errorMsg}
+              plants={plants}
+              productForm={productForm}
+              handleProductFormChange={handleProductFormChange}
+              handleAddProduct={handleAddProduct}
+              handleRemoveProduct={handleRemoveProduct}
+              products={products}
+              ventaTotal={ventaTotal}
             />
           ))
         )}
@@ -567,13 +581,14 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
                 <thead>
                   <tr>
                     <th className="border border-gray-200 px-2 py-1">Fecha</th>
-                    <th className="border border-gray-200 px-2 py-1">Producto</th>
+                    <th className="border border-gray-200 px-2 py-1">Producto / Detalle</th>
                     <th className="border border-gray-200 px-2 py-1">Cantidad</th>
                     <th className="border border-gray-200 px-2 py-1">Precio</th>
                     <th className="border border-gray-200 px-2 py-1">Total</th>
                     <th className="border border-gray-200 px-2 py-1">Método de Pago</th>
                     <th className="border border-gray-200 px-2 py-1">Tipo</th>
                     <th className="border border-gray-200 px-2 py-1">Lugar</th>
+                    <th className="border border-gray-200 px-2 py-1">Detalle</th>
                     {/* Ocultar Notas y Acciones en móvil para mejor visualización */}
                     <th className="border border-gray-200 px-2 py-1 hidden sm:table-cell">Notas</th>
                     <th className="border border-gray-200 px-2 py-1 hidden sm:table-cell">Acciones</th>
@@ -652,7 +667,7 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
                             <td className="border border-gray-200 px-2 py-1">
                               {plants && mov.plantId
                                 ? (plants.find(p => String(p.id) === String(mov.plantId))?.name || mov.plantId || '-')
-                                : '-'}
+                                : (mov.detail || '-')}
                             </td>
                             <td className="border border-gray-200 px-2 py-1 text-right">
                               {(mov.type === 'venta' || mov.type === 'compra') && mov.products && Array.isArray(mov.products)
@@ -668,6 +683,9 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
                             <td className="border border-gray-200 px-2 py-1">{PAYMENT_METHODS.find(m => m.value === mov.paymentMethod)?.label || mov.paymentMethod}</td>
                             <td className="border border-gray-200 px-2 py-1">{MOVEMENT_TYPES.find(t => t.value === mov.type)?.label || mov.type}</td>
                             <td className="border border-gray-200 px-2 py-1">{mov.location}</td>
+                            <td className="border border-gray-200 px-2 py-1">
+                              {(mov.type === 'ingreso' || mov.type === 'egreso' || mov.type === 'gasto') ? (mov.detail || '-') : ''}
+                            </td>
                             <td className="border border-gray-200 px-2 py-1 hidden sm:table-cell">{mov.notes}</td>
                             <td className="border border-gray-200 px-2 py-1 flex gap-1 justify-center items-center">
                               <button onClick={() => handleEditClick(mov)} className="bg-blue-500 text-white px-2 py-1 rounded text-xs flex items-center" aria-label="Editar movimiento">
