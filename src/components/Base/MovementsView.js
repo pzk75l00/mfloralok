@@ -25,7 +25,7 @@ const PAYMENT_METHODS = [
 ];
 
 // Este componente se moverá a la carpeta Base
-const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotals, onMovementAdded, selectedMonth, selectedYear, showOnlySalesOfDay, selectedDate }) => {
+const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotals, onMovementAdded, selectedMonth: propSelectedMonth, selectedYear: propSelectedYear, showOnlySalesOfDay, selectedDate }) => {
   const [plants, setPlants] = useState(propPlants || []);
   const [movements, setMovements] = useState([]);
   const [form, setForm] = useState({
@@ -50,12 +50,13 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
   const [editingMovement, setEditingMovement] = useState(null);
   const [editForm, setEditForm] = useState(null);
   const [editLoading, setEditLoading] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState('todos');
 
   // --- FILTRO MENSUAL ---
   const [reloadKey, setReloadKey] = useState(0);
   const now = new Date();
-  const currentMonth = typeof selectedMonth === 'number' ? selectedMonth : now.getMonth();
-  const currentYear = typeof selectedYear === 'number' ? selectedYear : now.getFullYear();
+  const currentMonth = typeof propSelectedMonth === 'number' ? propSelectedMonth : now.getMonth();
+  const currentYear = typeof propSelectedYear === 'number' ? propSelectedYear : now.getFullYear();
   const movementsThisMonth = movements.filter(mov => {
     if (!mov.date) return false;
     const d = new Date(mov.date);
@@ -66,6 +67,19 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
   // --- NUEVO ESTADO PARA VENTA MULTIPRODUCTO ---
   const [products, setProducts] = useState([]);
   const [productForm, setProductForm] = useState({ plantId: '', quantity: 1, price: '' });
+
+  // Mostrar todos los movimientos por defecto
+  const [showAll, setShowAll] = useState(true);
+
+  // Si showAll está activo, mostrar todos los movimientos, si no, filtrar por mes seleccionado
+  const displayedMovements = showAll
+    ? movements
+    : movements.filter(mov => {
+        if (!mov.date) return false;
+        const d = new Date(mov.date);
+        if (isNaN(d.getTime())) return false;
+        return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      });
 
   useEffect(() => {
     // Sincronizar plantas y movimientos en un solo efecto para evitar race conditions
@@ -284,7 +298,8 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
             price: p.price,
             total: p.total,
             detail: form.detail || '', // asegurar que siempre se guarda el detalle correcto
-            date: isoArgentina
+            date: isoArgentina,
+            source: 'escritorio', // Indica origen escritorio
           };
           // Eliminar campos innecesarios
           delete movementData.products;
@@ -300,6 +315,7 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
           total: Number(total),
           date: isoArgentina,
           detail: form.detail || '', // asegurar que siempre se guarda el detalle correcto
+          source: 'escritorio', // Indica origen escritorio
         };
         // Si es compra de un solo producto, guardar también el nombre
         if (form.type === 'compra' && form.plantId) {
@@ -501,6 +517,10 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
     }
   }, []);
 
+  // Selector de mes y año para filtrar movimientos
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+
   // Detectar si se debe mostrar el selector de fecha (solo móvil, solo si selectedDate viene como prop)
   const showDateInput = isMobile && selectedDate !== undefined && false; // Forzar a false para ventas móvil
 
@@ -576,7 +596,35 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
           {/* Historial de movimientos fuera del sticky */}
           <div className="mt-6 p-3 bg-white rounded-lg shadow w-full mx-0 overflow-x-auto">
             <h2 className="text-base font-bold mb-2">Histórico de Movimientos del Mes</h2>
-            {movementsThisMonth.length > 0 ? (
+            {/* Selector para alternar entre todos los movimientos o solo los del mes */}
+            {!isMobileDevice && (
+              <div className="mb-2">
+                <label className="mr-2">Ver:</label>
+                <select value={showAll ? 'todos' : 'mes'} onChange={e => setShowAll(e.target.value === 'todos')} className="border rounded px-2 py-1">
+                  <option value="todos">Todos los movimientos</option>
+                  <option value="mes">Solo del mes seleccionado</option>
+                </select>
+              </div>
+            )}
+            {/* Selector de mes y año para filtrar movimientos */}
+            {!isMobileDevice && !showAll && (
+              <div className="mb-2 flex gap-2 items-center">
+                <label>Mes:</label>
+                <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="border rounded px-2 py-1">
+                  {[...Array(12)].map((_, i) => (
+                    <option key={i} value={i}>{new Date(0, i).toLocaleString('es-AR', { month: 'long' })}</option>
+                  ))}
+                </select>
+                <label>Año:</label>
+                <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="border rounded px-2 py-1">
+                  {[...Array(6)].map((_, i) => {
+                    const year = now.getFullYear() - 3 + i;
+                    return <option key={year} value={year}>{year}</option>;
+                  })}
+                </select>
+              </div>
+            )}
+            {displayedMovements.length > 0 ? (
               <table className="min-w-full border-collapse border border-gray-200 text-xs whitespace-nowrap">
                 <thead>
                   <tr>
@@ -588,14 +636,13 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
                     <th className="border border-gray-200 px-2 py-1">Método de Pago</th>
                     <th className="border border-gray-200 px-2 py-1">Tipo</th>
                     <th className="border border-gray-200 px-2 py-1">Lugar</th>
-                    <th className="border border-gray-200 px-2 py-1">Detalle</th>
                     {/* Ocultar Notas y Acciones en móvil para mejor visualización */}
                     <th className="border border-gray-200 px-2 py-1 hidden sm:table-cell">Notas</th>
                     <th className="border border-gray-200 px-2 py-1 hidden sm:table-cell">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {movementsThisMonth.map(mov => {
+                  {displayedMovements.map(mov => {
                     let rowClass = '';
                     if (mov.type === 'ingreso') rowClass = 'bg-green-100 text-green-900';
                     if (mov.type === 'egreso') rowClass = 'bg-black text-white';
@@ -686,9 +733,6 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
                             <td className="border border-gray-200 px-2 py-1">{PAYMENT_METHODS.find(m => m.value === mov.paymentMethod)?.label || mov.paymentMethod}</td>
                             <td className="border border-gray-200 px-2 py-1">{MOVEMENT_TYPES.find(t => t.value === mov.type)?.label || mov.type}</td>
                             <td className="border border-gray-200 px-2 py-1">{mov.location}</td>
-                            <td className="border border-gray-200 px-2 py-1">
-                              {(mov.type === 'ingreso' || mov.type === 'egreso' || mov.type === 'gasto') ? (mov.detail || '-') : ''}
-                            </td>
                             <td className="border border-gray-200 px-2 py-1 hidden sm:table-cell">{mov.notes}</td>
                             <td className="border border-gray-200 px-2 py-1 flex gap-1 justify-center items-center">
                               <button onClick={() => handleEditClick(mov)} className="bg-blue-500 text-white px-2 py-1 rounded text-xs flex items-center" aria-label="Editar movimiento">
