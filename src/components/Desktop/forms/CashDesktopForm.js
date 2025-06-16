@@ -16,6 +16,8 @@ const CashDesktopForm = ({ form, productForm, plants, handleChange, handleProduc
             <option value="egreso">Egreso</option>
             <option value="gasto">Gasto</option>
           </select>
+          <label htmlFor="date" className="font-semibold text-sm mb-1">Fecha y hora</label>
+          <input type="datetime-local" id="date" name="date" value={form.date} onChange={handleChange} className="border border-red-500 rounded px-2 py-1 mb-2 w-full bg-yellow-50" />
           <ProductFormFields productForm={productForm} plants={plants} handleProductFormChange={handleProductFormChange} />
           <button type="button" onClick={handleAddProduct} className="bg-blue-500 text-white rounded px-2 py-1">Agregar producto</button>
         </div>
@@ -40,10 +42,13 @@ const CashDesktopForm = ({ form, productForm, plants, handleChange, handleProduc
           <option value="egreso">Egreso</option>
           <option value="gasto">Gasto</option>
         </select>
+        <label htmlFor="date" className="font-semibold text-sm mb-1">Fecha y hora</label>
+        <input type="datetime-local" id="date" name="date" value={form.date} onChange={handleChange} className="border border-red-500 rounded px-2 py-1 mb-2 w-full bg-yellow-50" />
         <input type="number" name="price" value={form.price} onChange={handleChange} className="border rounded px-2 py-1 mb-2 w-full" placeholder="Monto" />
         {(form.type === 'ingreso' || form.type === 'egreso' || form.type === 'gasto') && (
           <input type="text" name="detail" value={form.detail} onChange={handleChange} className="border rounded px-2 py-1 mb-2 w-full" placeholder="Detalle" />
         )}
+        <input type="text" name="location" value={form.location} onChange={handleChange} className="border rounded px-2 py-1 mb-2 w-full" placeholder="Lugar" />
         <select name="paymentMethod" value={form.paymentMethod} onChange={handleChange} className="border rounded px-2 py-1 mb-2 w-full">
           <option value="efectivo">Efectivo</option>
           <option value="mercadoPago">Mercado Pago</option>

@@ -283,7 +283,7 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
             quantity: p.quantity,
             price: p.price,
             total: p.total,
-            detail: form.notes || '', // <-- ahora guarda lo que el usuario escribió en Detalle
+            detail: form.detail || '', // asegurar que siempre se guarda el detalle correcto
             date: isoArgentina
           };
           // Eliminar campos innecesarios
@@ -299,7 +299,7 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
           ...form,
           total: Number(total),
           date: isoArgentina,
-          detail: form.notes || '', // asegurar que siempre se guarda el detalle
+          detail: form.detail || '', // asegurar que siempre se guarda el detalle correcto
         };
         // Si es compra de un solo producto, guardar también el nombre
         if (form.type === 'compra' && form.plantId) {
@@ -665,9 +665,12 @@ const MovementsView = ({ plants: propPlants, hideForm, showOnlyForm, renderTotal
                           <>
                             <td className="border border-gray-200 px-2 py-1">{mov.date ? new Date(mov.date).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</td>
                             <td className="border border-gray-200 px-2 py-1">
-                              {plants && mov.plantId
-                                ? (plants.find(p => String(p.id) === String(mov.plantId))?.name || mov.plantId || '-')
-                                : (mov.detail || '-')}
+                              {(mov.type === 'ingreso' || mov.type === 'egreso' || mov.type === 'gasto')
+                                ? (mov.detail || '-')
+                                : (plants && mov.plantId
+                                    ? (plants.find(p => String(p.id) === String(mov.plantId))?.name || mov.plantId || '-')
+                                    : (mov.detail || '-')
+                                  )}
                             </td>
                             <td className="border border-gray-200 px-2 py-1 text-right">
                               {(mov.type === 'venta' || mov.type === 'compra') && mov.products && Array.isArray(mov.products)
